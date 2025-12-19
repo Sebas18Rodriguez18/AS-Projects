@@ -14,7 +14,8 @@ import kotlin.math.abs
 
 class MainActivity : AppCompatActivity() {
 
-    private var piezaActual: View? = null
+    private var piezaActual: Pieza? = null
+    private var bloquesPiezaActual = mutableListOf<View>()
     private var filaActual = 0
     private var columnaActual = 4
     private val handler = Handler(Looper.getMainLooper())
@@ -25,12 +26,34 @@ class MainActivity : AppCompatActivity() {
     private val COLUMNAS_TABLERO = 10
     
     private val tableroOcupado = Array(FILAS_TABLERO) { BooleanArray(COLUMNAS_TABLERO) }
-    
     private val bloquesEnTablero = mutableMapOf<Pair<Int, Int>, View>()
     
     private lateinit var gestureDetector: GestureDetectorCompat
     private var puntuacion = 0
     private lateinit var scoreTextView: TextView
+    private lateinit var gameBoard: FrameLayout
+    
+    private var nivel = 1
+    private var lineasEliminadas = 0
+    private var velocidadCaida = 500L
+    private lateinit var levelTextView: TextView
+    private lateinit var linesTextView: TextView
+    
+    private val LINEAS_POR_NIVEL = 10
+    private val VELOCIDAD_MINIMA = 100L
+    private val REDUCCION_VELOCIDAD_POR_NIVEL = 40L
+
+    private val caerRunnable = object : Runnable {
+        override fun run() {
+            if (puedeCaer()) {
+                filaActual++
+                actualizarPosicionPieza()
+                handler.postDelayed(this, velocidadCaida)
+            } else {
+                onPiezaAterrizó()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,20 +62,23 @@ class MainActivity : AppCompatActivity() {
         val densidad = resources.displayMetrics.density
         tamanoPixel = (30 * densidad).toInt()
         
+        gameBoard = findViewById(R.id.game_board)
         scoreTextView = findViewById(R.id.score_text)
+        levelTextView = findViewById(R.id.level_text)
+        linesTextView = findViewById(R.id.lines_text)
         
         setupGestureDetector()
+        actualizarUI()
         
-        crearPrimerBloque()
+        crearNuevaPieza()
         handler.post(caerRunnable)
     }
     
     private fun setupGestureDetector() {
-        val gameBoard = findViewById<FrameLayout>(R.id.game_board)
-        
         gestureDetector = GestureDetectorCompat(this, object : GestureDetector.SimpleOnGestureListener() {
             
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                rotarPieza()
                 return true
             }
             
@@ -94,95 +120,126 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun crearNuevaPieza() {
-        val gameBoard = findViewById<FrameLayout>(R.id.game_board)
-
-        val bloque = View(this)
-
-        val params = FrameLayout.LayoutParams(tamanoPixel, tamanoPixel)
-        params.leftMargin = tamanoPixel * 4
-        params.topMargin = 0
-
-        bloque.setBackgroundResource(R.drawable.bloque_base)
-        bloque.layoutParams = params
-
-        gameBoard.addView(bloque)
-
-        piezaActual = bloque
         filaActual = 0
-        columnaActual = 4
+        columnaActual = 3
         
-        handler.post(caerRunnable)
-    }
-
-    private fun crearPrimerBloque() {
-        val gameBoard = findViewById<FrameLayout>(R.id.game_board)
-
-        val bloque = View(this)
-
-        val params = FrameLayout.LayoutParams(tamanoPixel, tamanoPixel)
-        params.leftMargin = tamanoPixel * 4
-        params.topMargin = 0
-
-        bloque.setBackgroundResource(R.drawable.bloque_base)
-        bloque.layoutParams = params
-
-        gameBoard.addView(bloque)
-
-        piezaActual = bloque
-        filaActual = 0
-        columnaActual = 4
-    }
-
-    private val caerRunnable = object : Runnable {
-        override fun run() {
-            if (puedeCaer()) {
-                filaActual++
-
-                val params = piezaActual?.layoutParams as? FrameLayout.LayoutParams
-                if params != null) {
-                    params.topMargin = filaActual * tamanoPixel
-                    piezaActual?.layoutParams = params
-                }
-
-                handler.postDelayed(this, 500)
-            } else {
-                onPiezaAterrizó()
+        val tipoAleatorio = TipoPieza.values().random()
+        piezaActual = Pieza(tipoAleatorio)
+        
+        bloquesPiezaActual.forEach { gameBoard.removeView(it) }
+        bloquesPiezaActual.clear()
+        
+        piezaActual?.let { pieza ->
+            val forma = pieza.obtenerForma()
+            
+            forma.forEach { coord ->
+                val bloque = View(this)
+                bloque.setBackgroundColor(pieza.color)
+                
+                val params = FrameLayout.LayoutParams(tamanoPixel, tamanoPixel)
+                bloque.layoutParams = params
+                
+                gameBoard.addView(bloque)
+                bloquesPiezaActual.add(bloque)
             }
+            
+            actualizarPosicionPieza()
         }
+        
+        handler.postDelayed(caerRunnable, velocidadCaida)
     }
     
     private fun puedeCaer(): Boolean {
-        val siguienteFila = filaActual + 1
-        
-        if (siguienteFila >= FILAS_TABLERO) {
-            return false
+        piezaActual?.let { pieza ->
+            val forma = pieza.obtenerForma()
+            
+            for (coord in forma) {
+                val nuevaFila = filaActual + coord.fila + 1
+                val nuevaColumna = columnaActual + coord.columna
+                
+                if (nuevaFila >= FILAS_TABLERO) return false
+                if (nuevaColumna < 0 || nuevaColumna >= COLUMNAS_TABLERO) return false
+                if (tableroOcupado[nuevaFila][nuevaColumna]) return false
+            }
+            return true
         }
-        
-        if (tableroOcupado[siguienteFila][columnaActual]) {
-            return false
+        return false
+    }
+    
+    private fun puedeMover(deltaFila: Int, deltaColumna: Int): Boolean {
+        piezaActual?.let { pieza ->
+            val forma = pieza.obtenerForma()
+            
+            for (coord in forma) {
+                val nuevaFila = filaActual + coord.fila + deltaFila
+                val nuevaColumna = columnaActual + coord.columna + deltaColumna
+                
+                if (nuevaFila < 0 || nuevaFila >= FILAS_TABLERO) return false
+                if (nuevaColumna < 0 || nuevaColumna >= COLUMNAS_TABLERO) return false
+                if (tableroOcupado[nuevaFila][nuevaColumna]) return false
+            }
+            return true
         }
-        
-        return true
+        return false
     }
     
     private fun moverIzquierda() {
-        if (columnaActual > 0 && !tableroOcupado[filaActual][columnaActual - 1]) {
+        if (puedeMover(0, -1)) {
             columnaActual--
             actualizarPosicionPieza()
         }
     }
     
     private fun moverDerecha() {
-        if (columnaActual < COLUMNAS_TABLERO - 1 && !tableroOcupado[filaActual][columnaActual + 1]) {
+        if (puedeMover(0, 1)) {
             columnaActual++
             actualizarPosicionPieza()
         }
     }
     
+    private fun rotarPieza() {
+        piezaActual?.let { pieza ->
+            val rotacionAnterior = pieza.rotacion
+            pieza.rotar()
+            
+            if (!puedeMover(0, 0)) {
+                var ajustado = false
+                
+                if (puedeMover(0, -1)) {
+                    columnaActual--
+                    ajustado = true
+                }
+                else if (puedeMover(0, 1)) {
+                    columnaActual++
+                    ajustado = true
+                }
+                else if (puedeMover(0, -2)) {
+                    columnaActual -= 2
+                    ajustado = true
+                }
+                
+                if (!ajustado) {
+                    pieza.rotacion = rotacionAnterior
+                    return
+                }
+            }
+            
+            actualizarPosicionPieza()
+        }
+    }
+    
     private fun acelerarCaida() {
+        var bloquesCaidos = 0
         while (puedeCaer()) {
             filaActual++
+            bloquesCaidos++
         }
+        
+        if (bloquesCaidos > 0) {
+            puntuacion += bloquesCaidos
+            actualizarUI()
+        }
+        
         actualizarPosicionPieza()
         
         handler.removeCallbacks(caerRunnable)
@@ -191,31 +248,52 @@ class MainActivity : AppCompatActivity() {
     
     private fun actualizarPosicionPieza() {
         piezaActual?.let { pieza ->
-            val params = pieza.layoutParams as FrameLayout.LayoutParams
-            params.leftMargin = columnaActual * tamanoPixel
-            params.topMargin = filaActual * tamanoPixel
-            pieza.layoutParams = params
+            val forma = pieza.obtenerForma()
+            
+            forma.forEachIndexed { index, coord ->
+                if (index < bloquesPiezaActual.size) {
+                    val bloque = bloquesPiezaActual[index]
+                    val params = bloque.layoutParams as FrameLayout.LayoutParams
+                    params.leftMargin = (columnaActual + coord.columna) * tamanoPixel
+                    params.topMargin = (filaActual + coord.fila) * tamanoPixel
+                    bloque.layoutParams = params
+                }
+            }
         }
     }
 
     private fun onPiezaAterrizó() {
-        tableroOcupado[filaActual][columnaActual] = true
-        
-        piezaActual?.let {
-            it.alpha = 1.0f
-            bloquesEnTablero[Pair(filaActual, columnaActual)] = it
+        piezaActual?.let { pieza ->
+            val forma = pieza.obtenerForma()
+            
+            forma.forEachIndexed { index, coord ->
+                val fila = filaActual + coord.fila
+                val columna = columnaActual + coord.columna
+                
+                if (fila >= 0 && fila < FILAS_TABLERO && 
+                    columna >= 0 && columna < COLUMNAS_TABLERO) {
+                    
+                    tableroOcupado[fila][columna] = true
+                    
+                    if (index < bloquesPiezaActual.size) {
+                        bloquesEnTablero[Pair(fila, columna)] = bloquesPiezaActual[index]
+                    }
+                }
+            }
         }
+        
+        bloquesPiezaActual.clear()
         
         verificarLineasCompletas()
         
-        if (tableroOcupado[0][4]) {
+        if (tableroOcupado[0].any { it } || tableroOcupado[1].any { it }) {
             gameOver()
             return
         }
         
         handler.postDelayed({
             crearNuevaPieza()
-        }, 500)
+        }, 300)
     }
     
     private fun verificarLineasCompletas() {
@@ -236,18 +314,48 @@ class MainActivity : AppCompatActivity() {
         
         if (lineasAEliminar.isNotEmpty()) {
             eliminarLineas(lineasAEliminar)
-            puntuacion += lineasAEliminar.size * 100
-            actualizarPuntuacion()
+            
+            lineasEliminadas += lineasAEliminar.size
+            
+            puntuacion += when (lineasAEliminar.size) {
+                1 -> 100 * nivel
+                2 -> 300 * nivel
+                3 -> 500 * nivel
+                4 -> 800 * nivel
+                else -> lineasAEliminar.size * 100 * nivel
+            }
+            
+            verificarSubidaNivel()
+            
+            actualizarUI()
         }
     }
     
-    private fun actualizarPuntuacion() {
+    private fun verificarSubidaNivel() {
+        val nuevoNivel = (lineasEliminadas / LINEAS_POR_NIVEL) + 1
+        
+        if (nuevoNivel > nivel) {
+            nivel = nuevoNivel
+            
+            velocidadCaida = (500L - ((nivel - 1) * REDUCCION_VELOCIDAD_POR_NIVEL))
+                .coerceAtLeast(VELOCIDAD_MINIMA)
+            
+            runOnUiThread {
+                scoreTextView.text = "🎉 ¡NIVEL $nivel! 🎉"
+                handler.postDelayed({
+                    actualizarUI()
+                }, 1500)
+            }
+        }
+    }
+    
+    private fun actualizarUI() {
         scoreTextView.text = "Puntaje: $puntuacion"
+        levelTextView.text = "Nivel: $nivel"
+        linesTextView.text = "Líneas: $lineasEliminadas"
     }
     
     private fun eliminarLineas(lineas: List<Int>) {
-        val gameBoard = findViewById<FrameLayout>(R.id.game_board)
-        
         for (fila in lineas) {
             for (columna in 0 until COLUMNAS_TABLERO) {
                 val bloque = bloquesEnTablero[Pair(fila, columna)]
@@ -285,7 +393,9 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(caerRunnable)
         
         runOnUiThread {
-            scoreTextView.text = "GAME OVER! Puntaje: $puntuacion"
+            scoreTextView.text = "GAME OVER!"
+            levelTextView.text = "Puntaje Final: $puntuacion"
+            linesTextView.text = "Nivel Alcanzado: $nivel"
         }
     }
 
