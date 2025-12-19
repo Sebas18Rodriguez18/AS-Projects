@@ -5,9 +5,7 @@ plugins {
 
 android {
     namespace = "com.example.mytetris"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.mytetris"
