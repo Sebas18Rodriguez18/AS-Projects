@@ -16,14 +16,9 @@
 ## 📋 Tabla de Contenidos
 
 - [Características](#-características)
-- [Requisitos del Sistema](#-requisitos-del-sistema)
 - [Instalación](#-instalación)
 - [Cómo Jugar](#-cómo-jugar)
-- [Arquitectura del Proyecto](#-arquitectura-del-proyecto)
-- [Tecnologías Utilizadas](#-tecnologías-utilizadas)
 - [Sistema de Puntuación](#-sistema-de-puntuación)
-- [Mecánicas del Juego](#-mecánicas-del-juego)
-- [Roadmap](#-roadmap)
 - [Contribuir](#-contribuir)
 - [Licencia](#-licencia)
 - [Contacto](#-connect-with-me)
